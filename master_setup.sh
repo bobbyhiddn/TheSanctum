@@ -153,6 +153,10 @@ fi
 phase "Phase 1 · System Foundations"
 
 hostnamectl set-hostname "$NODE_NAME"
+if ! grep -q "$NODE_NAME" /etc/hosts; then
+sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$NODE_NAME/" /etc/hosts || \
+echo "127.0.1.1	$NODE_NAME" >> /etc/hosts
+fi
 log "Hostname → $NODE_NAME"
 
 # ── Enable contrib + non-free-firmware in deb822 or legacy format ─────────
