@@ -187,7 +187,6 @@ log "System fully upgraded"
 
 apt-get install -y -qq \
 curl wget git gnupg2 ca-certificates lsb-release \
-apt-transport-https software-properties-common \
 sudo vim nano \
 htop btop fastfetch \
 tmux screen \
