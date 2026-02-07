@@ -268,6 +268,37 @@ sed -i '/^auto wl/,/^$/d; /^allow-hotplug wl/,/^$/d; /^iface wl/,/^$/d' /etc/net
 fi
 
 systemctl enable --now NetworkManager
+
+# If the system was installed over WiFi, re-create the connection in NetworkManager
+# so it persists across reboots (the /etc/network/interfaces entry was removed above)
+WIFI_IFACE=$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2=="wifi"{print $1; exit}')
+if [[ -n "$WIFI_IFACE" ]]; then
+log "WiFi interface detected: $WIFI_IFACE"
+# Create connect-wifi utility for the user
+cat <<'WIFISCRIPT' > "${MAIN_HOME}/connect-wifi.sh"
+#!/usr/bin/env bash
+# Quick WiFi connection utility
+if [[ -z "$1" ]]; then
+  echo "Usage: ~/connect-wifi.sh <SSID> [password]"
+  echo ""
+  echo "Available networks:"
+  nmcli device wifi list
+  exit 1
+fi
+SSID="$1"
+if [[ -n "$2" ]]; then
+  nmcli connection add type wifi ifname wlp3s0 ssid "$SSID" \
+    wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$2" \
+    connection.autoconnect yes
+  nmcli connection up "$SSID"
+else
+  nmcli --ask device wifi connect "$SSID"
+fi
+WIFISCRIPT
+chmod +x "${MAIN_HOME}/connect-wifi.sh"
+chown "$MAIN_USER:$MAIN_USER" "${MAIN_HOME}/connect-wifi.sh"
+fi
+
 log "NetworkManager configured (managed=true)"
 
 # ── Fail2ban ──────────────────────────────────────────────────────────────
@@ -946,6 +977,7 @@ cat <<SUMMARY
 │                                                                  │
 ├──────────────────────────────────────────────────────────────────┤
 │  FILES:                                                          │
+│  ~/connect-wifi.sh            WiFi connection utility             │
 │  ~/metallb-config.yaml        MetalLB IP pool template           │
 │  ~/CLUSTER-CHEATSHEET.md      Quick reference                    │
 │  ~/verify-install.sh          Version check                      │
