@@ -180,7 +180,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get full-upgrade -y -qq
+apt-get upgrade -y -qq
 log "System fully upgraded"
 
 # ── Core packages ─────────────────────────────────────────────────────────
@@ -192,6 +192,7 @@ htop btop fastfetch \
 tmux screen \
 tree jq unzip zip pigz zstd \
 net-tools iproute2 dnsutils iputils-ping traceroute nmap \
+wpasupplicant network-manager \
 openssh-server ufw fail2ban \
 bash-completion zsh \
 build-essential gcc g++ make cmake pkg-config autoconf automake libtool \
