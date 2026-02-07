@@ -153,6 +153,10 @@ fi
 phase "Phase 1 · System Foundations"
 
 hostnamectl set-hostname "$NODE_NAME"
+if ! grep -q "$NODE_NAME" /etc/hosts; then
+sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$NODE_NAME/" /etc/hosts || \
+echo "127.0.1.1	$NODE_NAME" >> /etc/hosts
+fi
 log "Hostname → $NODE_NAME"
 
 # ── Enable contrib + non-free-firmware in deb822 or legacy format ─────────
@@ -180,19 +184,19 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get full-upgrade -y -qq
+apt-get upgrade -y -qq
 log "System fully upgraded"
 
 # ── Core packages ─────────────────────────────────────────────────────────
 
 apt-get install -y -qq \
 curl wget git gnupg2 ca-certificates lsb-release \
-apt-transport-https software-properties-common \
 sudo vim nano \
 htop btop fastfetch \
 tmux screen \
 tree jq unzip zip pigz zstd \
 net-tools iproute2 dnsutils iputils-ping traceroute nmap \
+wpasupplicant network-manager \
 openssh-server ufw fail2ban \
 bash-completion zsh \
 build-essential gcc g++ make cmake pkg-config autoconf automake libtool \
@@ -251,6 +255,51 @@ ufw allow 4011/udp           comment "PXE proxy DHCP"
 
 ufw --force enable
 log "Firewall configured"
+
+# ── NetworkManager (ensure WiFi works after reboot) ──────────────────────
+
+if [[ -f /etc/NetworkManager/NetworkManager.conf ]]; then
+sed -i 's/managed=false/managed=true/' /etc/NetworkManager/NetworkManager.conf
+fi
+
+# Remove any WiFi stanzas from /etc/network/interfaces so NM can manage them
+if grep -q "wlan\|wlp" /etc/network/interfaces 2>/dev/null; then
+sed -i '/^auto wl/,/^$/d; /^allow-hotplug wl/,/^$/d; /^iface wl/,/^$/d' /etc/network/interfaces
+fi
+
+systemctl enable --now NetworkManager
+
+# If the system was installed over WiFi, re-create the connection in NetworkManager
+# so it persists across reboots (the /etc/network/interfaces entry was removed above)
+WIFI_IFACE=$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2=="wifi"{print $1; exit}')
+if [[ -n "$WIFI_IFACE" ]]; then
+log "WiFi interface detected: $WIFI_IFACE"
+# Create connect-wifi utility for the user
+cat <<'WIFISCRIPT' > "${MAIN_HOME}/connect-wifi.sh"
+#!/usr/bin/env bash
+# Quick WiFi connection utility
+if [[ -z "$1" ]]; then
+  echo "Usage: ~/connect-wifi.sh <SSID> [password]"
+  echo ""
+  echo "Available networks:"
+  nmcli device wifi list
+  exit 1
+fi
+SSID="$1"
+if [[ -n "$2" ]]; then
+  nmcli connection add type wifi ifname wlp3s0 ssid "$SSID" \
+    wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$2" \
+    connection.autoconnect yes
+  nmcli connection up "$SSID"
+else
+  nmcli --ask device wifi connect "$SSID"
+fi
+WIFISCRIPT
+chmod +x "${MAIN_HOME}/connect-wifi.sh"
+chown "$MAIN_USER:$MAIN_USER" "${MAIN_HOME}/connect-wifi.sh"
+fi
+
+log "NetworkManager configured (managed=true)"
 
 # ── Fail2ban ──────────────────────────────────────────────────────────────
 
@@ -313,30 +362,28 @@ log "User $MAIN_USER → incus-admin, incus groups"
 
 cat <<PRESEED | incus admin init --preseed || warn "Preseed failed — run 'incus admin init' manually"
 config:
-core.https_address: ":8443"
+  core.https_address: ":8443"
 networks:
-
 - name: incusbr0
   type: bridge
   config:
-  ipv4.address: "${INCUS_BRIDGE_SUBNET}"
-  ipv4.nat: "true"
-  ipv6.address: auto
-  storage_pools:
+    ipv4.address: "${INCUS_BRIDGE_SUBNET}"
+    ipv4.nat: "true"
+    ipv6.address: auto
+storage_pools:
 - name: default
   driver: dir
-  profiles:
+profiles:
 - name: default
   devices:
-  root:
-  path: /
-  pool: default
-  type: disk
-  eth0:
-  name: eth0
-  network: incusbr0
-  type: nic
-  cluster: null
+    root:
+      path: /
+      pool: default
+      type: disk
+    eth0:
+      name: eth0
+      network: incusbr0
+      type: nic
 PRESEED
 
 log "Incus initialized — bridge ${INCUS_BRIDGE_SUBNET}, web UI on :8443"
@@ -382,13 +429,12 @@ sysctl --system > /dev/null 2>&1
 log "Kernel parameters tuned"
 
 cat <<EOF > /etc/security/limits.d/99-k3s.conf
-
-- soft nofile 65536
-- hard nofile 65536
-- soft nproc  32768
-- hard nproc  32768
-  EOF
-  log "File descriptor limits raised"
+* soft nofile 65536
+* hard nofile 65536
+* soft nproc  32768
+* hard nproc  32768
+EOF
+log "File descriptor limits raised"
 
 # ── Install K3s (stable channel) ──────────────────────────────────────────
 
@@ -734,6 +780,7 @@ thunar thunar-archive-plugin \
 sddm \
 fonts-noto fonts-font-awesome fonts-noto-color-emoji \
 brightnessctl playerctl pamixer \
+network-manager-gnome \
 libnotify-bin dunst
 
 # seatd is needed for non-root Wayland compositors
@@ -921,18 +968,16 @@ cat <<SUMMARY
 │     • Reboot again when done                                     │
 │     • At SDDM, select "Hyprland" session                        │
 │                                                                  │
-│  3. After Hyprland is running:                                   │
-│     sudo apt install network-manager-gnome                       │
-│                                                                  │
-│  4. Configure MetalLB:                                           │
+│  3. Configure MetalLB:                                           │
 │     vim ~/metallb-config.yaml                                    │
 │     kubectl apply -f ~/metallb-config.yaml                       │
 │                                                                  │
-│  5. Verify everything:                                           │
+│  4. Verify everything:                                           │
 │     ~/verify-install.sh                                          │
 │                                                                  │
 ├──────────────────────────────────────────────────────────────────┤
 │  FILES:                                                          │
+│  ~/connect-wifi.sh            WiFi connection utility             │
 │  ~/metallb-config.yaml        MetalLB IP pool template           │
 │  ~/CLUSTER-CHEATSHEET.md      Quick reference                    │
 │  ~/verify-install.sh          Version check                      │
