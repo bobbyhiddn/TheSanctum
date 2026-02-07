@@ -256,6 +256,20 @@ ufw allow 4011/udp           comment "PXE proxy DHCP"
 ufw --force enable
 log "Firewall configured"
 
+# ── NetworkManager (ensure WiFi works after reboot) ──────────────────────
+
+if [[ -f /etc/NetworkManager/NetworkManager.conf ]]; then
+sed -i 's/managed=false/managed=true/' /etc/NetworkManager/NetworkManager.conf
+fi
+
+# Remove any WiFi stanzas from /etc/network/interfaces so NM can manage them
+if grep -q "wlan\|wlp" /etc/network/interfaces 2>/dev/null; then
+sed -i '/^auto wl/,/^$/d; /^allow-hotplug wl/,/^$/d; /^iface wl/,/^$/d' /etc/network/interfaces
+fi
+
+systemctl enable --now NetworkManager
+log "NetworkManager configured (managed=true)"
+
 # ── Fail2ban ──────────────────────────────────────────────────────────────
 
 systemctl enable --now fail2ban
@@ -735,6 +749,7 @@ thunar thunar-archive-plugin \
 sddm \
 fonts-noto fonts-font-awesome fonts-noto-color-emoji \
 brightnessctl playerctl pamixer \
+network-manager-gnome \
 libnotify-bin dunst
 
 # seatd is needed for non-root Wayland compositors
@@ -922,14 +937,11 @@ cat <<SUMMARY
 │     • Reboot again when done                                     │
 │     • At SDDM, select "Hyprland" session                        │
 │                                                                  │
-│  3. After Hyprland is running:                                   │
-│     sudo apt install network-manager-gnome                       │
-│                                                                  │
-│  4. Configure MetalLB:                                           │
+│  3. Configure MetalLB:                                           │
 │     vim ~/metallb-config.yaml                                    │
 │     kubectl apply -f ~/metallb-config.yaml                       │
 │                                                                  │
-│  5. Verify everything:                                           │
+│  4. Verify everything:                                           │
 │     ~/verify-install.sh                                          │
 │                                                                  │
 ├──────────────────────────────────────────────────────────────────┤
