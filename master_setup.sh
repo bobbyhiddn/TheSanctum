@@ -312,30 +312,28 @@ log "User $MAIN_USER → incus-admin, incus groups"
 
 cat <<PRESEED | incus admin init --preseed || warn "Preseed failed — run 'incus admin init' manually"
 config:
-core.https_address: ":8443"
+  core.https_address: ":8443"
 networks:
-
 - name: incusbr0
   type: bridge
   config:
-  ipv4.address: "${INCUS_BRIDGE_SUBNET}"
-  ipv4.nat: "true"
-  ipv6.address: auto
-  storage_pools:
+    ipv4.address: "${INCUS_BRIDGE_SUBNET}"
+    ipv4.nat: "true"
+    ipv6.address: auto
+storage_pools:
 - name: default
   driver: dir
-  profiles:
+profiles:
 - name: default
   devices:
-  root:
-  path: /
-  pool: default
-  type: disk
-  eth0:
-  name: eth0
-  network: incusbr0
-  type: nic
-  cluster: null
+    root:
+      path: /
+      pool: default
+      type: disk
+    eth0:
+      name: eth0
+      network: incusbr0
+      type: nic
 PRESEED
 
 log "Incus initialized — bridge ${INCUS_BRIDGE_SUBNET}, web UI on :8443"
@@ -381,13 +379,12 @@ sysctl --system > /dev/null 2>&1
 log "Kernel parameters tuned"
 
 cat <<EOF > /etc/security/limits.d/99-k3s.conf
-
-- soft nofile 65536
-- hard nofile 65536
-- soft nproc  32768
-- hard nproc  32768
-  EOF
-  log "File descriptor limits raised"
+* soft nofile 65536
+* hard nofile 65536
+* soft nproc  32768
+* hard nproc  32768
+EOF
+log "File descriptor limits raised"
 
 # ── Install K3s (stable channel) ──────────────────────────────────────────
 
