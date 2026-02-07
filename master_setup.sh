@@ -19,11 +19,13 @@
 
 # Usage:
 
-# chmod +x master-node-setup.sh
+# chmod +x master_setup.sh
 
-# sudo ./master-node-setup.sh
+# sudo ./master_setup.sh              # if sudo is already installed
 
-# 
+# ./master_setup.sh --user <username>  # as root on fresh install (no sudo)
+
+#
 
 # Run as root on a fresh Debian 13 netinstall (SSH server + standard utils).
 
@@ -44,7 +46,24 @@ GO_VERSION="1.25.7"
 K9S_VERSION="v0.32.7"
 METALLB_VERSION="v0.14.9"
 
-MAIN_USER="${SUDO_USER:-$(logname 2>/dev/null || echo '')}"
+# ── Parse arguments ───────────────────────────────────────────────────────────
+
+CLI_USER=""
+while [[ $# -gt 0 ]]; do
+case "$1" in
+--user|-u)
+CLI_USER="$2"
+shift 2
+;;
+*)
+echo "Unknown option: $1" >&2
+echo "Usage: sudo ./master_setup.sh  OR  ./master_setup.sh --user <username>" >&2
+exit 1
+;;
+esac
+done
+
+MAIN_USER="${CLI_USER:-${SUDO_USER:-$(logname 2>/dev/null || echo '')}}"
 
 # ── Colors & logging ─────────────────────────────────────────────────────────
 
@@ -65,16 +84,24 @@ echo ""
 # ── Preflight ─────────────────────────────────────────────────────────────────
 
 if [[ $EUID -ne 0 ]]; then
-err "Run as root: sudo ./master-node-setup.sh"
+err "Run as root: sudo ./master_setup.sh  OR  ./master_setup.sh --user <username>"
 exit 1
 fi
 
 if [[ -z "$MAIN_USER" || "$MAIN_USER" == "root" ]]; then
-err "Cannot detect non-root user. Run with sudo, not as root directly."
+err "Cannot detect non-root user."
+err "Use: sudo ./master_setup.sh  (if sudo is installed)"
+err "  or: ./master_setup.sh --user <username>  (as root, fresh install)"
 exit 1
 fi
 
 MAIN_HOME=$(eval echo "~${MAIN_USER}")
+
+# Verify the target user actually exists
+if ! id "$MAIN_USER" &>/dev/null; then
+err "User '$MAIN_USER' does not exist on this system."
+exit 1
+fi
 
 source /etc/os-release 2>/dev/null || { err "Cannot read /etc/os-release"; exit 1; }
 if [[ "$VERSION_CODENAME" != "trixie" ]]; then
@@ -96,6 +123,27 @@ echo ""
 read -rp "  Press Enter to begin (Ctrl+C to abort)… "
 
 START_TIME=$SECONDS
+
+#===============================================================================
+
+# PHASE 0 — BOOTSTRAP (sudo + user privileges)
+
+#===============================================================================
+phase "Phase 0 · Bootstrap"
+
+if ! command -v sudo &>/dev/null; then
+log "sudo not found — installing as root…"
+apt-get update -qq
+apt-get install -y -qq sudo
+log "sudo installed"
+fi
+
+if ! groups "$MAIN_USER" | grep -qw sudo; then
+usermod -aG sudo "$MAIN_USER"
+log "User $MAIN_USER added to sudo group"
+else
+log "User $MAIN_USER already in sudo group"
+fi
 
 #===============================================================================
 
